@@ -1,0 +1,81 @@
+data:
+  root: "/home/shoumik/Shoumik Workplace/My Research/Datasets/HRF/"
+  train:
+    images: "training/images"
+    masks: "training/masks"
+    fov: "training/FOV"
+  test:
+    images: "test/images"
+    masks: "test/masks"
+    fov: "test/FOV"
+  colormap: "colormap.mat"
+  colormap_key: "color_map"
+  processed_dir: "data/processed"
+  num_classes: 2
+  batch_size: 1
+
+preprocessing:
+  resize: 896
+  patch_size: 224
+  step: [224, 224]
+  scale: 255.0
+  mask_threshold: 0.5
+  mask_interpolation: "nearest"
+  random_crop:
+    enabled: false
+    num_patches: 7
+    seed: 42
+
+augmentation:
+  enabled: true
+  seed: 42
+  num_augmented: 0
+  geometric:
+    horizontal_flip: {p: 0.5}
+    vertical_flip: {p: 0.5}
+    random_rotate_90: {p: 0.5}
+    shift_scale_rotate:
+      p: 0.8
+      shift_limit: 0.2
+      scale_limit: 0.3
+      rotate_limit: 45
+      interpolation: "nearest"
+      border_mode: "constant"
+    elastic_transform:
+      p: 0.2
+      interpolation: "nearest"
+  intensity:
+    random_brightness_contrast:
+      p: 0.5
+      brightness_limit: 0.3
+      contrast_limit: 0.3
+    gauss_noise:
+      p: 0.3
+      var_limit: [10.0, 50.0]
+  legacy:
+    rotate: {limit: [-30, 30], p: 1, border_mode: "constant", value: [0, 0, 0]}
+    horizontal_flip: {p: 1}
+    vertical_flip: {p: 1}
+    random_brightness_contrast:
+      p: 1
+      brightness_limit: [0.1, 0.2]
+      contrast_limit: [0.1, 0.2]
+    hue_saturation_value:
+      p: 1
+      hue_shift_limit: 5
+      sat_shift_limit: 0.05
+      val_shift_limit: 0.05
+    elastic_transform: {p: 1, alpha: 1, sigma: 8, alpha_affine: 8}
+    output_format: "jpg"
+
+evaluation:
+  patches_per_image: 16
+  image_shape: [896, 896]
+  channels: 3
+  figure:
+    figsize: [20, 20]
+    font_size: 16
+    grid: [4, 3]
+    titles: ["RGB", "OriginalMask", "Prediction"]
+  separator_width: 10
+  output_dir: "results"

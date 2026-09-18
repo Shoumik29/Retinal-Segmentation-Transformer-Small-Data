@@ -55,6 +55,7 @@ def prepare_data_paths(data_root: str) -> Tuple[List[str], List[str], List[str],
 
     train_img_paths, train_mask_paths = list_image_mask_paths(data_root, "training")
     test_img_paths, test_mask_paths = list_image_mask_paths(data_root, "test")
+
     return train_img_paths, train_mask_paths, test_img_paths, test_mask_paths
 
 

@@ -42,3 +42,33 @@ def list_image_mask_paths(data_root: str, split: str) -> Tuple[List[str], List[s
         )
 
     return img_paths, mask_paths
+
+
+def prepare_data_paths(data_root: str) -> Tuple[List[str], List[str], List[str], List[str]]:
+
+    """
+    Wrapper returning train + test paths in one call.
+ 
+    Returns:
+        train_img_paths, train_mask_paths, test_img_paths, test_mask_paths
+    """
+
+    train_img_paths, train_mask_paths = list_image_mask_paths(data_root, "training")
+    test_img_paths, test_mask_paths = list_image_mask_paths(data_root, "test")
+    return train_img_paths, train_mask_paths, test_img_paths, test_mask_paths
+
+
+def load_colormap(colormap_path: str) -> np.ndarray:
+
+    """
+    Load the .mat colormap to decode class indices into RGB for
+    visualization.
+ 
+    Args:
+        colormap_path: path to .mat file containing a "color_map" key.
+ 
+    Returns:
+        np.ndarray of shape (num_classes, 3).
+    """
+
+    return loadmat(colormap_path)["color_map"]

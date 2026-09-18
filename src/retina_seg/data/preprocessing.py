@@ -9,7 +9,6 @@ Responsibilities:
 import os
 from glob import glob
 from typing import Callable, Dict, List, Tuple
-
 import cv2
 import numpy as np
 import SimpleITK as sitk

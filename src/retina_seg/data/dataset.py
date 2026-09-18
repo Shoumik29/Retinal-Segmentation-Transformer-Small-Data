@@ -73,3 +73,34 @@ def load_colormap(colormap_path: str) -> np.ndarray:
     """
 
     return loadmat(colormap_path)["color_map"]
+
+
+def tf_dataset(
+    X: np.ndarray,
+    Y: np.ndarray,
+    batch_size: int = 1,
+    shuffle: bool = False,
+    drop_remainder: bool = True,
+	) -> tf.data.Dataset:
+
+    """
+    Wrap image/mask patch arrays into a batched tf.data.Dataset.
+ 
+    Args:
+        X: image patches, shape (N, H, W, C).
+        Y: mask patches, shape (N, H, W, num_classes) — (mask one-hot encoded).
+        batch_size: batch size (cfg.data.batch_size).
+        shuffle: (True for training).
+        drop_remainder: If the dataset size isn't divisible by batch_size.
+ 
+    Returns:
+        A batched tf.data.Dataset of (image, mask) pairs.
+    """
+
+    dataset = tf.data.Dataset.from_tensor_slices((X, Y))
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size=len(X), reshuffle_each_iteration=True)
+    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+    return dataset

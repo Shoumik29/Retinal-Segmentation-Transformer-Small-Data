@@ -45,7 +45,6 @@ def gamma_correction(image: np.ndarray, gamma: float = 1.0) -> np.ndarray:
 
     """
     Apply gamma correction by raising normalized intensities to `gamma`.
-
     Args:
         image: uint8 image, any number of channels.
         gamma: exponent; < 1 brightens, > 1 darkens.
@@ -61,7 +60,6 @@ def gamma_correction_1(image: np.ndarray, gamma: float = 0.5) -> np.ndarray:
 
     """
     Apply gamma correction through a 256-entry lookup table.
-
     Faster than `gamma_correction` for large images, and uses the inverse
     exponent convention (< 1 darkens, > 1 brightens).
 
@@ -104,7 +102,6 @@ def field_of_view_mask(image: np.ndarray) -> np.ndarray:
 
     """
     Locate the black border ring surrounding the circular field of view.
-
     Otsu-thresholds the red channel, which separates the illuminated retina
     from the unexposed corners more reliably than the green or blue channels.
 
@@ -132,7 +129,6 @@ def fill_border_ring(
 
     """
     Replace the black border ring with the mean retinal colour.
-
     Filling the ring before contrast enhancement stops the hard black/retina
     edge from dominating the CLAHE histograms near the FOV boundary.
 
@@ -212,7 +208,6 @@ def _lab_clahe_with_fov(
 
     """
     Fill the FOV border, equalize the LAB lightness channel, restore the border.
-
     Shared body of `preprocess_image_2`, `preprocess_image_5` and
     `preprocess_image_7`, which differ only in whether the border is smoothed.
 
@@ -244,7 +239,6 @@ def preprocess_image_0(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
     CLAHE-equalized green channel on its own.
-
     The green channel carries the strongest vessel-to-background contrast in
     fundus photography, so this is the lightest-weight single-channel input.
 
@@ -327,7 +321,6 @@ def preprocess_image_4(
 
     """
     Reduce the morphologically-filtered RGB channels to one channel via PCA.
-
     Each channel is background-suppressed and equalized independently, then PCA
     projects the three onto the axis of greatest variance — which is dominated
     by the vessel structure the morphological step isolated.
@@ -379,7 +372,6 @@ def preprocess_image_7(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
     LAB lightness CLAHE after filling and Gaussian-smoothing the FOV border ring.
-
     Produces the same output as `preprocess_image_5`; the N4 follow-up step
     from the original experiment was commented out there and is not applied.
 
@@ -416,7 +408,6 @@ def random_hsv_gamma_adjustment(image: np.ndarray) -> np.ndarray:
 
     """
     Randomly perturb hue, saturation, value, and gamma.
-
     Uses Python's `random` module, as the original experiments did, so results
     reproduce under `random.seed(...)`.
 

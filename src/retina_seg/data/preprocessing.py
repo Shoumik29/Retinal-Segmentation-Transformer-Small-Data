@@ -3,11 +3,9 @@ Preprocessing utilities for retinal fundus image segmentation.
 Responsibilities:
     - Enhance fundus images (CLAHE, gamma, LAB, channel fusion, PCA, N4 bias correction)
     - Detect the circular field of view and neutralise the black border ring
-    - Randomly jitter colour and gamma for augmentation
 """
 
-import random
-from typing import Callable, Dict, Tuple
+from typing import Tuple
 import cv2
 import numpy as np
 import SimpleITK as sitk
@@ -402,29 +400,3 @@ def preprocess_retinal_image(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]
     return image, cv2.merge(
         [image[:, :, 0], clahe_equalized(corrected_green), image[:, :, 2]]
     )
-
-
-def random_hsv_gamma_adjustment(image: np.ndarray) -> np.ndarray:
-
-    """
-    Randomly perturb hue, saturation, value, and gamma.
-    Uses Python's `random` module, as the original experiments did, so results
-    reproduce under `random.seed(...)`.
-
-    Args:
-        image: BGR uint8 image.
-
-    Returns:
-        Colour-jittered BGR uint8 image.
-    """
-
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    hue, saturation, value = cv2.split(hsv_image)
-
-    hue = np.mod(hue + random.randint(-10, 10), 180).astype(np.uint8)
-    saturation = np.clip(saturation * random.uniform(0.8, 1.2), 0, 255).astype(np.uint8)
-    value = np.clip(value * random.uniform(0.8, 1.2), 0, 255).astype(np.uint8)
-
-    adjusted = cv2.cvtColor(cv2.merge([hue, saturation, value]), cv2.COLOR_HSV2BGR)
-
-    return gamma_correction(adjusted, random.uniform(0.8, 1.2))

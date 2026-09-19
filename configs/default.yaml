@@ -15,9 +15,15 @@ data:
   batch_size: 1
 
 preprocessing:
+  method: null
+  resize: 896
   patch_size: 224
   step: [224, 224]
   scale: 255.0
+
+augmentation:
+  num_augmented: 0
+  seed: null
 
 evaluation:
   channels: 3

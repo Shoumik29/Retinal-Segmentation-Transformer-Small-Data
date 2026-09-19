@@ -2,16 +2,18 @@
 Responsibilities:
     - List image/mask file paths for train/test splits
     - Load the segmentation colormap (used for visualizing predictions)
+    - Create train and test patches from the config
     - Wrap numpy arrays of patches into a tf.data.Dataset
 """
 
 
 import os
 from glob import glob
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 import numpy as np
 import tensorflow as tf
 from scipy.io import loadmat
+from retina_seg.data.patches import create_patches
 
 
 def list_image_mask_paths(data_root: str, split: str) -> Tuple[List[str], List[str]]:
@@ -73,6 +75,43 @@ def load_colormap(colormap_path: str) -> np.ndarray:
     """
 
     return loadmat(colormap_path)["color_map"]
+
+
+def prepare_dataset(config: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+
+    """
+    Create train and test patches from the config.
+
+    Args:
+        config: loaded yaml config.
+
+    Returns:
+        train_img_patches, train_mask_patches, test_img_patches, test_mask_patches
+    """
+
+    train_img_paths, train_mask_paths, test_img_paths, test_mask_paths = prepare_data_paths(config["data"]["root"])
+
+    patch_size = config["preprocessing"]["patch_size"]
+    res = config["preprocessing"]["resize"]
+    step = tuple(config["preprocessing"]["step"])
+    scale = config["preprocessing"]["scale"]
+    method = config["preprocessing"]["method"]
+    num_augmented = config["augmentation"]["num_augmented"]
+
+    print('Creating training patches...')
+    train_img_patches, train_mask_patches = create_patches(
+        train_img_paths, train_mask_paths, patch_size, res, step, scale, method, num_augmented
+    )
+
+    print('Creating test patches...')
+    test_img_patches, test_mask_patches = create_patches(
+        test_img_paths, test_mask_paths, patch_size, res, step, scale, method
+    )
+
+    print("Train patches: ", len(train_img_patches))
+    print("Test patches: ", len(test_img_patches))
+
+    return train_img_patches, train_mask_patches, test_img_patches, test_mask_patches
 
 
 def tf_dataset(

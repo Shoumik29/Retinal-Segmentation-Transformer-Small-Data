@@ -8,8 +8,8 @@ stages (encoder and decoder) by name from cfg.model.
 
 
 from tensorflow.keras import Model, layers
-from project_name.models import decoders, encoders  # This import is for populating the corresponding registry
-from project_name.models.registry import DECODERS, ENCODERS
+from . import decoders, encoders  # This import is for populating the corresponding registry
+from .registry import DECODERS, ENCODERS
 
 
 def build_model(cfg) -> Model:

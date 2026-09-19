@@ -23,7 +23,6 @@ preprocessing:
 
 augmentation:
   num_augmented: 0
-  seed: null
 
 evaluation:
   channels: 3

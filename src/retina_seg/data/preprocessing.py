@@ -2,77 +2,67 @@
 Preprocessing utilities for retinal fundus image segmentation.
 Responsibilities:
     - Enhance fundus images (CLAHE, gamma, LAB, channel fusion, PCA, N4 bias correction)
-    - Detect the circular field of view and neutralise the black border ring
+    - Select the preprocessing method set in the config
 """
 
-from typing import Tuple
+from typing import Callable, Optional, Tuple
 import cv2
 import numpy as np
 import SimpleITK as sitk
 from sklearn.decomposition import PCA
 
 
-def clahe_equalized(
-    image: np.ndarray,
-    clip_limit: float = 1.5,
-    tile_grid_size: Tuple[int, int] = (8, 8),
-) -> np.ndarray:
+def clahe_equalized(imgs: np.ndarray) -> np.ndarray:
 
     """
-    Apply Contrast-Limited Adaptive Histogram Equalization to a single channel.
+    Apply CLAHE on a single channel image.
 
     Args:
-        image: single-channel uint8 image.
-        clip_limit: contrast clipping threshold.
-        tile_grid_size: (rows, cols) of the equalization tiles.
+        imgs: single channel uint8 image.
 
     Returns:
-        Equalized single-channel uint8 image.
+        Equalized image.
     """
 
-    if image.ndim != 2:
-        raise ValueError(
-            f"clahe_equalized expects a single-channel image, got shape {image.shape}"
-        )
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    imgs_equalized = clahe.apply(imgs)
 
-    return clahe.apply(image)
+    return imgs_equalized
 
 
-def gamma_correction(image: np.ndarray, gamma: float = 1.0) -> np.ndarray:
+def gamma_correction(img: np.ndarray, gamma: float) -> np.ndarray:
 
     """
-    Apply gamma correction by raising normalized intensities to `gamma`.
+    Apply gamma correction using power function.
+
     Args:
-        image: uint8 image, any number of channels.
-        gamma: exponent; < 1 brightens, > 1 darkens.
+        img: uint8 image.
+        gamma: gamma value, below 1 makes image brighter.
 
     Returns:
-        Gamma-corrected uint8 image.
+        Gamma corrected image.
     """
 
-    return np.uint8(cv2.pow(image / 255.0, gamma) * 255)
+    gamma_corrected_image = np.uint8(cv2.pow(img / 255.0, gamma) * 255)
+
+    return gamma_corrected_image
 
 
 def gamma_correction_1(image: np.ndarray, gamma: float = 0.5) -> np.ndarray:
 
     """
-    Apply gamma correction through a 256-entry lookup table.
-    Faster than `gamma_correction` for large images, and uses the inverse
-    exponent convention (< 1 darkens, > 1 brightens).
+    Apply gamma correction using a lookup table.
 
     Args:
-        image: uint8 image, any number of channels.
-        gamma: exponent; the LUT is built from 1 / gamma.
+        image: uint8 image.
+        gamma: gamma value, table is built with 1 / gamma.
 
     Returns:
-        Gamma-corrected uint8 image.
+        Gamma corrected image.
     """
 
     inv_gamma = 1.0 / gamma
-    table = np.array(
-        [(i / 255.0) ** inv_gamma * 255 for i in np.arange(256)]
-    ).astype(np.uint8)
+    table = np.array([(i / 255.0) ** inv_gamma * 255 for i in np.arange(0, 256)]).astype("uint8")
 
     return cv2.LUT(image, table)
 
@@ -80,323 +70,321 @@ def gamma_correction_1(image: np.ndarray, gamma: float = 0.5) -> np.ndarray:
 def normalize_image(image: np.ndarray) -> np.ndarray:
 
     """
-    Min-max normalize an image and rescale it back to the 8-bit range.
+    Min-max normalize an image to 0-255 range.
 
     Args:
-        image: image of any dtype.
+        image: input image.
 
     Returns:
-        uint8 image spanning the full [0, 255] range.
+        Normalized uint8 image.
     """
 
-    norm_image = cv2.normalize(
-        image, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F
-    )
+    norm_image = cv2.normalize(image, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    norm_image = (255 * norm_image).astype(np.uint8)
 
-    return (255 * norm_image).astype(np.uint8)
-
-
-def field_of_view_mask(image: np.ndarray) -> np.ndarray:
-
-    """
-    Locate the black border ring surrounding the circular field of view.
-    Otsu-thresholds the red channel, which separates the illuminated retina
-    from the unexposed corners more reliably than the green or blue channels.
-
-    Args:
-        image: BGR uint8 image.
-
-    Returns:
-        uint8 mask where 255 marks border (non-FOV) pixels and 0 marks retina.
-    """
-
-    red_channel = image[:, :, 2]
-    _, mask = cv2.threshold(
-        red_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
-
-    return cv2.bitwise_not(mask)
-
-
-def fill_border_ring(
-    image: np.ndarray,
-    mask: np.ndarray,
-    smooth_edges: bool = True,
-    blur_sigma: float = 7.0,
-) -> np.ndarray:
-
-    """
-    Replace the black border ring with the mean retinal colour.
-    Filling the ring before contrast enhancement stops the hard black/retina
-    edge from dominating the CLAHE histograms near the FOV boundary.
-
-    Args:
-        image: BGR uint8 image.
-        mask: border mask from `field_of_view_mask` (255 = border).
-        smooth_edges: blend the filled ring with a Gaussian blur of the image.
-        blur_sigma: Gaussian sigma used when `smooth_edges` is True.
-
-    Returns:
-        BGR uint8 copy with the border ring filled.
-    """
-
-    filled = image.copy()
-
-    retina_pixels = np.where(mask == 0)
-    average_color = np.mean(image[retina_pixels], axis=0)
-    filled[mask == 255] = average_color
-
-    if smooth_edges:
-        blurred = cv2.GaussianBlur(
-            filled, (0, 0), sigmaX=blur_sigma, sigmaY=blur_sigma
-        )
-        filled[mask == 255] = blurred[mask == 255]
-
-    return filled
-
-
-def apply_morphological_operations(
-    channel: np.ndarray, kernel: np.ndarray
-) -> np.ndarray:
-
-    """
-    Emphasise vessel-like structures with a bottom-hat followed by a top-hat.
-
-    Args:
-        channel: single-channel uint8 image.
-        kernel: structuring element, e.g. from `cv2.getStructuringElement`.
-
-    Returns:
-        Single-channel uint8 image with background illumination removed.
-    """
-
-    bottom_hat = cv2.morphologyEx(channel, cv2.MORPH_BLACKHAT, kernel)
-
-    return cv2.morphologyEx(bottom_hat, cv2.MORPH_TOPHAT, kernel)
-
-
-def apply_n4_bias_field_correction(
-    image: np.ndarray, iterations: int = 25, levels: int = 5
-) -> np.ndarray:
-
-    """
-    Correct slow-varying illumination bias with the N4 algorithm.
-
-    Args:
-        image: single-channel uint8 image.
-        iterations: maximum iterations per resolution level.
-        levels: number of multi-resolution levels.
-
-    Returns:
-        Bias-corrected single-channel uint8 image.
-    """
-
-    float_image = sitk.GetImageFromArray(image.astype(np.float32))
-
-    corrector = sitk.N4BiasFieldCorrectionImageFilter()
-    corrector.SetMaximumNumberOfIterations([iterations] * levels)
-    corrected = corrector.Execute(float_image)
-
-    return sitk.GetArrayFromImage(corrected).astype(np.uint8)
-
-
-def _lab_clahe_with_fov(
-    image: np.ndarray, smooth_edges: bool, blur_sigma: float = 7.0
-) -> np.ndarray:
-
-    """
-    Fill the FOV border, equalize the LAB lightness channel, restore the border.
-    Shared body of `preprocess_image_2`, `preprocess_image_5` and
-    `preprocess_image_7`, which differ only in whether the border is smoothed.
-
-    Args:
-        image: BGR uint8 image.
-        smooth_edges: blend the filled border ring with a Gaussian blur.
-        blur_sigma: Gaussian sigma used when `smooth_edges` is True.
-
-    Returns:
-        BGR uint8 image with a black border ring and an enhanced interior.
-    """
-
-    mask = field_of_view_mask(image)
-    filled = fill_border_ring(
-        image, mask, smooth_edges=smooth_edges, blur_sigma=blur_sigma
-    )
-
-    lab_image = cv2.cvtColor(filled, cv2.COLOR_BGR2LAB)
-    l_channel, a_channel, b_channel = cv2.split(lab_image)
-    enhanced_lab = cv2.merge([clahe_equalized(l_channel), a_channel, b_channel])
-
-    enhanced = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
-    enhanced[mask == 255] = [0, 0, 0]
-
-    return enhanced
+    return norm_image
 
 
 def preprocess_image_0(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    CLAHE-equalized green channel on its own.
-    The green channel carries the strongest vessel-to-background contrast in
-    fundus photography, so this is the lightest-weight single-channel input.
+    CLAHE on the green channel.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original BGR image, single-channel uint8 enhancement.
+        (image, enhanced_green_channel) —> enhanced is single channel.
     """
 
-    return image, clahe_equalized(image[:, :, 1])
+    green_channel = image[:, :, 1]
+    enhanced_green_channel = clahe_equalized(green_channel)
+
+    return image, enhanced_green_channel
 
 
 def preprocess_image_1(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    CLAHE-equalized green channel merged back with the original B and R.
+    CLAHE on the green channel, merged back with blue and red.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original and enhanced BGR uint8 images.
+        (image, enhanced_image) —> original and enhanced image.
     """
 
-    enhanced_green = clahe_equalized(image[:, :, 1])
+    green_channel = image[:, :, 1]
+    enhanced_green_channel = clahe_equalized(green_channel)
+    enhanced_image = cv2.merge([image[:, :, 0], enhanced_green_channel, image[:, :, 2]])
 
-    return image, cv2.merge([image[:, :, 0], enhanced_green, image[:, :, 2]])
+    return image, enhanced_image
 
 
 def preprocess_image_2(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    LAB lightness CLAHE after filling the FOV border ring, without smoothing.
+    Fill the black border with the average colour, then CLAHE on the L channel of LAB.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original and enhanced BGR uint8 images.
+        (image, enhanced_rgb_image) —> original and enhanced image.
     """
 
-    return image, _lab_clahe_with_fov(image, smooth_edges=False)
+    img = image.copy()
+    red_channel = img[:, :, 2]
+
+    _, mask = cv2.threshold(red_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = cv2.bitwise_not(mask)
+
+    non_black_pixels = np.where(mask == 0)
+    average_color = np.mean(image[non_black_pixels], axis=0)
+
+    img[mask == 255] = average_color
+
+    lab_image = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab_image)
+    enhanced_l_channel = clahe_equalized(l_channel)
+    enhanced_lab_image = cv2.merge([enhanced_l_channel, a_channel, b_channel])
+    enhanced_rgb_image = cv2.cvtColor(enhanced_lab_image, cv2.COLOR_LAB2BGR)
+
+    enhanced_rgb_image[mask == 255] = [0, 0, 0]
+
+    return image, enhanced_rgb_image
 
 
-def preprocess_image_3(
-    image: np.ndarray,
-    gamma: float = 1.2,
-    weights: Tuple[float, float, float] = (0.114, 0.299, 0.587),
-) -> Tuple[np.ndarray, np.ndarray]:
+def preprocess_image_3(image: np.ndarray, gamma: float = 1.2) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    Fuse the BGR channels into one grayscale image, then equalize and gamma-correct.
+    Weighted channel fusion, then CLAHE and gamma correction.
 
     Args:
-        image: BGR uint8 image.
-        gamma: exponent passed to `gamma_correction`.
-        weights: per-channel fusion weights, ordered (B, G, R). The defaults are
-            the values used in the original experiments; the green and red
-            weights are swapped relative to the standard ITU-R BT.601 luma
-            weights (0.114, 0.587, 0.299).
+        image: BGR image.
+        gamma: gamma value.
 
     Returns:
-        (image, enhanced) —> original BGR image, single-channel uint8 enhancement.
+        (image, gamma_corrected_image) —> enhanced is single channel.
     """
 
     b_channel, g_channel, r_channel = cv2.split(image)
-    weight_b, weight_g, weight_r = weights
 
-    fused = (
-        b_channel * weight_b + g_channel * weight_g + r_channel * weight_r
-    ).astype(np.uint8)
+    b_channel_normalized = b_channel * 0.114
+    g_channel_normalized = g_channel * 0.299
+    r_channel_normalized = r_channel * 0.587
 
-    return image, gamma_correction(clahe_equalized(fused), gamma)
+    fused_image = (b_channel_normalized + g_channel_normalized + r_channel_normalized).astype(np.uint8)
+    clahe_equalized_image = clahe_equalized(fused_image)
+    gamma_corrected_image = gamma_correction(clahe_equalized_image, gamma)
+
+    return image, gamma_corrected_image
 
 
-def preprocess_image_4(
-    image: np.ndarray, kernel_size: Tuple[int, int] = (150, 150)
-) -> Tuple[np.ndarray, np.ndarray]:
+def preprocess_image_4(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    Reduce the morphologically-filtered RGB channels to one channel via PCA.
-    Each channel is background-suppressed and equalized independently, then PCA
-    projects the three onto the axis of greatest variance — which is dominated
-    by the vessel structure the morphological step isolated.
+    Morphological filtering on each channel, combined using PCA.
 
     Args:
-        image: BGR uint8 image.
-        kernel_size: ellipse size for the morphological structuring element.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original BGR image, and BGR uint8 image with the
-        PCA projection in the green channel.
+        (image, enhanced_image) —> PCA output is placed in the green channel.
     """
 
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    channel_r, channel_g, channel_b = cv2.split(rgb_image)
+    input_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
-    filtered = [
-        clahe_equalized(apply_morphological_operations(channel, kernel))
-        for channel in (channel_r, channel_g, channel_b)
-    ]
+    I_R, I_G, I_B = cv2.split(input_image)
+    I_R_gray = cv2.cvtColor(cv2.merge([I_R, I_R, I_R]), cv2.COLOR_BGR2GRAY)
+    I_G_gray = cv2.cvtColor(cv2.merge([I_G, I_G, I_G]), cv2.COLOR_BGR2GRAY)
+    I_B_gray = cv2.cvtColor(cv2.merge([I_B, I_B, I_B]), cv2.COLOR_BGR2GRAY)
 
-    stacked = np.vstack([channel.flatten() for channel in filtered]).T
-    projected = PCA(n_components=1).fit_transform(stacked)
-    vessel_map = projected[:, 0].reshape(filtered[0].shape)
-    vessel_map = cv2.normalize(vessel_map, None, 0, 255, cv2.NORM_MINMAX).astype(
-        np.uint8
-    )
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (150, 150))
 
-    return image, cv2.merge([image[:, :, 0], vessel_map, image[:, :, 2]])
+    I_UR = apply_morphological_operations(I_R_gray, kernel)
+    I_UG = apply_morphological_operations(I_G_gray, kernel)
+    I_UB = apply_morphological_operations(I_B_gray, kernel)
+
+    I_UR = clahe_equalized(I_UR)
+    I_UG = clahe_equalized(I_UG)
+    I_UB = clahe_equalized(I_UB)
+
+    vstacked_images = np.vstack((I_UR.flatten(), I_UG.flatten(), I_UB.flatten())).T
+    pca = PCA(n_components=1)
+    transformed_images = pca.fit_transform(vstacked_images)
+
+    I_fv = transformed_images[:, 0].reshape(I_UR.shape)
+    I_fv = cv2.normalize(I_fv, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    enhanced_image = cv2.merge([image[:, :, 0], I_fv, image[:, :, 2]])
+
+    return image, enhanced_image
 
 
 def preprocess_image_5(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    LAB lightness CLAHE after filling and Gaussian-smoothing the FOV border ring.
+    Fill and blur the black border, then CLAHE on the L channel of LAB.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original and enhanced BGR uint8 images.
+        (image, enhanced_rgb_image) —> original and enhanced image.
     """
 
-    return image, _lab_clahe_with_fov(image, smooth_edges=True)
+    img = image.copy()
+    red_channel = img[:, :, 2]
+
+    _, mask = cv2.threshold(red_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = cv2.bitwise_not(mask)
+
+    non_black_pixels = np.where(mask == 0)
+    average_color_r = np.mean(img[non_black_pixels][:, 2])
+    average_color_g = np.mean(img[non_black_pixels][:, 1])
+    average_color_b = np.mean(img[non_black_pixels][:, 0])
+    average_color = [average_color_b, average_color_g, average_color_r]
+
+    img[mask == 255] = average_color
+
+    blurred_img = cv2.GaussianBlur(img, (0, 0), sigmaX=7, sigmaY=7)
+    img[mask == 255] = blurred_img[mask == 255]
+
+    lab_image = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab_image)
+    enhanced_l_channel = clahe_equalized(l_channel)
+    enhanced_lab_image = cv2.merge([enhanced_l_channel, a_channel, b_channel])
+    enhanced_rgb_image = cv2.cvtColor(enhanced_lab_image, cv2.COLOR_LAB2BGR)
+
+    enhanced_rgb_image[mask == 255] = [0, 0, 0]
+
+    return image, enhanced_rgb_image
+
+
+def apply_morphological_operations(channel: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+
+    """
+    Highlight vessels using black-hat followed by top-hat.
+
+    Args:
+        channel: single channel image.
+        kernel: structuring element.
+
+    Returns:
+        Filtered channel.
+    """
+
+    bottom_hat = cv2.morphologyEx(channel, cv2.MORPH_BLACKHAT, kernel)
+    top_hat = cv2.morphologyEx(bottom_hat, cv2.MORPH_TOPHAT, kernel)
+
+    return top_hat
+
+
+def apply_n4_bias_field_correction(image: np.ndarray) -> np.ndarray:
+
+    """
+    Remove uneven illumination using N4 bias field correction.
+
+    Args:
+        image: single channel image.
+
+    Returns:
+        Corrected image.
+    """
+
+    float_image = sitk.GetImageFromArray(image.astype(np.float32))
+
+    corrector = sitk.N4BiasFieldCorrectionImageFilter()
+    corrector.SetMaximumNumberOfIterations([25] * 5)
+    corrected_image = corrector.Execute(float_image)
+    corrected_image = sitk.GetArrayFromImage(corrected_image).astype(np.uint8)
+
+    return corrected_image
 
 
 def preprocess_image_7(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    LAB lightness CLAHE after filling and Gaussian-smoothing the FOV border ring.
-    Produces the same output as `preprocess_image_5`; the N4 follow-up step
-    from the original experiment was commented out there and is not applied.
+    Same steps as preprocess_image_5.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original and enhanced BGR uint8 images.
+        (image, enhanced_rgb_image) —> original and enhanced image.
     """
 
-    return image, _lab_clahe_with_fov(image, smooth_edges=True)
+    img = image.copy()
+    red_channel = img[:, :, 2]
+
+    _, mask = cv2.threshold(red_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = cv2.bitwise_not(mask)
+
+    non_black_pixels = np.where(mask == 0)
+    average_color_r = np.mean(img[non_black_pixels][:, 2])
+    average_color_g = np.mean(img[non_black_pixels][:, 1])
+    average_color_b = np.mean(img[non_black_pixels][:, 0])
+    average_color = [average_color_b, average_color_g, average_color_r]
+
+    img[mask == 255] = average_color
+
+    blurred_img = cv2.GaussianBlur(img, (0, 0), sigmaX=7, sigmaY=7)
+    img[mask == 255] = blurred_img[mask == 255]
+
+    lab_image = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab_image)
+    enhanced_l_channel = clahe_equalized(l_channel)
+    enhanced_lab_image = cv2.merge([enhanced_l_channel, a_channel, b_channel])
+    enhanced_rgb_image = cv2.cvtColor(enhanced_lab_image, cv2.COLOR_LAB2BGR)
+
+    enhanced_rgb_image[mask == 255] = [0, 0, 0]
+
+    return image, enhanced_rgb_image
 
 
 def preprocess_retinal_image(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
-    Bias-correct the green channel, equalize it, and merge it back into BGR.
+    N4 bias correction and CLAHE on the green channel.
 
     Args:
-        image: BGR uint8 image.
+        image: BGR image.
 
     Returns:
-        (image, enhanced) —> original and enhanced BGR uint8 images.
+        (image, enhanced_image) —> original and enhanced image.
     """
 
-    corrected_green = apply_n4_bias_field_correction(image[:, :, 1])
+    green_channel = image[:, :, 1]
+    corrected_image = apply_n4_bias_field_correction(green_channel)
+    clahe_image = clahe_equalized(corrected_image)
+    enhanced_image = cv2.merge([image[:, :, 0], clahe_image, image[:, :, 2]])
 
-    return image, cv2.merge(
-        [image[:, :, 0], clahe_equalized(corrected_green), image[:, :, 2]]
-    )
+    return image, enhanced_image
+
+
+def get_preprocess_fn(
+    method: Optional[int],
+) -> Optional[Callable[[np.ndarray], Tuple[np.ndarray, np.ndarray]]]:
+
+    """
+    Get the preprocessing function from the method number in the config.
+
+    Args:
+        method: 0 to 7, or None for no preprocessing. 6 is preprocess_retinal_image.
+
+    Returns:
+        Preprocessing function, or None.
+    """
+
+    if method is None:
+        return None
+
+    name = "preprocess_retinal_image" if method == 6 else f"preprocess_image_{method}"
+    if type(method) is not int or name not in globals():
+        raise ValueError(
+            f"Unknown preprocessing method '{method}'. "
+            f"Use a number from 0 to 7, or null, in 'preprocessing.method'."
+        )
+
+    return globals()[name]

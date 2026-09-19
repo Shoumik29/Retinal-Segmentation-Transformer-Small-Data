@@ -1,46 +1,50 @@
 """
-Patch extraction and reconstruction for retinal fundus image segmentation.
+Patch extraction for retinal fundus images.
 Responsibilities:
-    - Cut images and masks into normalised patches on a sliding grid
-    - Randomly crop aligned image/mask/FOV patches
-    - Reassemble a full image from its grid of patches
+    - Split images and masks into patches
+    - Random crop of image, mask and FOV patches
+    - Create train/test patches from image and mask paths
+    - Rebuild an image from its patches
 """
 
 from typing import List, Optional, Tuple
+import cv2
+import imageio
 import numpy as np
+from tensorflow.keras.utils import to_categorical
+from tqdm import tqdm
+from retina_seg.data.augmentation import add_augmented_patches
+from retina_seg.data.preprocessing import get_preprocess_fn
 
 
 def sliding_window(
-    image: np.ndarray,
-    patch_size: int,
-    step: Tuple[int, int],
-    scale: float = 255.0,
+    image: np.ndarray, patch_size: int, step: Tuple[int, int], scale: float = 255.0
 ) -> List[np.ndarray]:
 
     """
-    Cut an image into square patches on a regular grid, row by row.
-    Patches that would run past the right or bottom edge are skipped, so an
-    image whose sides are multiples of `patch_size` is covered exactly when
-    `step` equals `(patch_size, patch_size)`.
+    Split an image into patches using a sliding window.
 
     Args:
-        image: image of shape (H, W) or (H, W, C).
-        patch_size: side length of each square patch.
-        step: (vertical_step, horizontal_step) between patch origins.
-        scale: divisor applied to every patch, e.g. 255.0 to map uint8 to [0, 1].
+        image: input image.
+        patch_size: size of each patch.
+        step: (vertical, horizontal) step.
+        scale: value to divide patches by.
 
     Returns:
-        List of patches, each (patch_size, patch_size) or (patch_size, patch_size, C),
-        ordered top-to-bottom then left-to-right.
+        List of patches.
     """
 
-    height, width = image.shape[:2]
-    vertical_step, horizontal_step = step
     patches = []
+    height, width = image.shape[:2]
+    patch_height = patch_size
+    patch_width = patch_size
+    vertical_step, horizontal_step = step
+    for y in range(0, height - patch_height + 1, vertical_step):
+        for x in range(0, width - patch_width + 1, horizontal_step):
+            patch = image[y:y+patch_height, x:x+patch_width]
+            patch = patch/scale
 
-    for y in range(0, height - patch_size + 1, vertical_step):
-        for x in range(0, width - patch_size + 1, horizontal_step):
-            patches.append(image[y:y + patch_size, x:x + patch_size] / scale)
+            patches.append(patch)
 
     return patches
 
@@ -52,24 +56,21 @@ def random_crop_image_mask_pairs(
     patch_size: int,
     num_patches: int,
     seed: Optional[int] = None,
-    scale: float = 255.0,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
 
     """
-    Randomly crop aligned image, mask and FOV patches at the same positions.
+    Crop image, mask and FOV patches at the same random positions.
 
     Args:
-        image: image of shape (H, W, C).
-        mask: mask of shape (H, W) or (H, W, 1), aligned with `image`.
-        fov: field-of-view mask of shape (H, W), aligned with `image`.
-        patch_size: side length of each square patch.
+        image: input image (H, W, C).
+        mask: mask of the image (H, W) or (H, W, 1).
+        fov: FOV mask of the image.
+        patch_size: size of each patch.
         num_patches: number of patches to crop.
-        seed: seeds NumPy's global RNG before sampling, if given.
-        scale: divisor applied to every patch, e.g. 255.0 to map uint8 to [0, 1].
+        seed: random seed.
 
     Returns:
-        (image_patches, mask_patches, fov_patches) —> index-aligned lists of
-        `num_patches` patches each.
+        (image_patches, mask_patches, fov_patches)
     """
 
     if seed is not None:
@@ -84,11 +85,88 @@ def random_crop_image_mask_pairs(
         y = np.random.randint(0, height - patch_size + 1)
         x = np.random.randint(0, width - patch_size + 1)
 
-        image_patches.append(image[y:y + patch_size, x:x + patch_size] / scale)
-        mask_patches.append(mask[y:y + patch_size, x:x + patch_size] / scale)
-        fov_patches.append(fov[y:y + patch_size, x:x + patch_size] / scale)
+        img_patch = image[y:y+patch_size, x:x+patch_size]
+        mask_patch = mask[y:y+patch_size, x:x+patch_size]
+        fov_patch = fov[y:y+patch_size, x:x+patch_size]
+
+        img_patch = img_patch / 255.0
+        mask_patch = mask_patch / 255.0
+        fov_patch = fov_patch / 255.0
+
+        image_patches.append(img_patch)
+        mask_patches.append(mask_patch)
+        fov_patches.append(fov_patch)
 
     return image_patches, mask_patches, fov_patches
+
+
+def create_patches(
+    img_paths: List[str],
+    mask_paths: List[str],
+    patch_size: int = 224,
+    res: int = 896,
+    step: Tuple[int, int] = (224, 224),
+    scale: float = 255.0,
+    method: Optional[int] = None,
+    num_augmented: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+
+    """
+    Read images and masks, resize, preprocess and split them into patches.
+
+    Args:
+        img_paths: image paths.
+        mask_paths: mask paths.
+        patch_size: size of each patch.
+        res: size images are resized to before patching.
+        step: (vertical, horizontal) step.
+        scale: value to divide pixels by.
+        method: preprocessing method number, or None.
+        num_augmented: augmented patches to add, 0 for test data.
+
+    Returns:
+        (img_patches, mask_patches) —> masks are one-hot encoded.
+    """
+
+    img_patches = []
+    mask_patches = []
+    preprocess_fn = get_preprocess_fn(method)
+
+    for i in tqdm(range(len(img_paths))):
+        image = cv2.imread(img_paths[i])
+        mask = imageio.mimread(mask_paths[i])[0]
+        if mask.ndim == 3:
+            mask = mask[:, :, 0]
+
+        image = cv2.resize(image, (res, res))
+        mask = cv2.resize(mask, (res, res), interpolation=cv2.INTER_NEAREST)
+
+        SIZE_X = (image.shape[0] // patch_size) * patch_size
+        SIZE_Y = (image.shape[1] // patch_size) * patch_size
+
+        image = cv2.resize(image, (SIZE_Y, SIZE_X))
+        mask = cv2.resize(mask, (SIZE_Y, SIZE_X), interpolation=cv2.INTER_NEAREST)
+
+        if preprocess_fn is not None:
+            _, image = preprocess_fn(image)
+            if image.ndim == 2:
+                image = cv2.merge([image, image, image])
+
+        image_patches = sliding_window(image, patch_size, step, scale)
+        mask_patches_i = sliding_window(mask, patch_size, step, scale)
+
+        img_patches += image_patches
+        mask_patches += mask_patches_i
+
+    if num_augmented > 0:
+        img_patches, mask_patches = add_augmented_patches(img_patches, mask_patches, num_augmented)
+
+    img_patches = np.array(img_patches)
+    mask_patches = np.array(mask_patches)
+
+    mask_patches = to_categorical((mask_patches >= 0.5).astype(np.uint8), num_classes=2)
+
+    return img_patches, mask_patches
 
 
 def reconstruct_image(
@@ -97,38 +175,37 @@ def reconstruct_image(
     patch_size: int,
     step: Tuple[int, int],
     ch: int,
-    patch_index: int = 0,
+    patch_index: int,
 ) -> np.ndarray:
 
     """
-    Reassemble one image from a grid of patches, the inverse of `sliding_window`.
-    Patches are read from `patches` starting at `patch_index` and placed in the
-    same top-to-bottom, left-to-right order `sliding_window` produced them.
-    Overlapping patches are summed, not averaged, so `step` should equal
-    `(patch_size, patch_size)` for an exact reconstruction.
+    Rebuild an image from its patches.
 
     Args:
-        patches: flat list of patches, possibly holding several images in sequence.
-        image_shape: (height, width) of the image to rebuild.
-        patch_size: side length of each square patch.
-        step: (vertical_step, horizontal_step) used when the patches were cut.
-        ch: number of channels in the rebuilt image.
-        patch_index: position in `patches` of this image's first patch; for the
-            k-th image of a sequence, k * patches_per_image.
+        patches: list of patches.
+        image_shape: (height, width) of the image.
+        patch_size: size of each patch.
+        step: (vertical, horizontal) step.
+        ch: number of channels.
+        patch_index: index of the first patch.
 
     Returns:
-        float32 image of shape (height, width, ch).
+        Rebuilt image.
     """
 
     height, width = image_shape[:2]
+    patch_height = patch_size
+    patch_width = patch_size
     vertical_step, horizontal_step = step
+
     reconstructed_image = np.zeros((height, width, ch), dtype=np.float32)
 
-    for y in range(0, height - patch_size + 1, vertical_step):
-        for x in range(0, width - patch_size + 1, horizontal_step):
-            if patch_index >= len(patches):
-                return reconstructed_image
-            reconstructed_image[y:y + patch_size, x:x + patch_size] += patches[patch_index]
-            patch_index += 1
+    for y in range(0, height - patch_height + 1, vertical_step):
+        for x in range(0, width - patch_width + 1, horizontal_step):
+            if patch_index < len(patches):
+                reconstructed_image[y:y+patch_height, x:x+patch_width] += patches[patch_index]
+                patch_index += 1
+            else:
+                break
 
     return reconstructed_image

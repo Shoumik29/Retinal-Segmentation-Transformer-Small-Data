@@ -36,6 +36,8 @@ def mlp_block(dropout_rate: float, hidden_units: List[int], name: str = "mlp"):
 	return ffn
 	
 
+# TODO: We have to use this function to randomly turn off some of the layers during training.
+'''
 class StochasticDepth(layers.Layer):
 	def __init__(self, drop_prop, **kwargs):
 		super().__init__(**kwargs)
@@ -54,9 +56,11 @@ class StochasticDepth(layers.Layer):
 		config = super().get_config()
 		config.update({"drop_prob": self.drop_prob})
 		return config
+'''
 		
 				
 def to_ntuple(n):
+
 	def parse(x):
 		if isinstance(x, collections.abc.Iterable):
 			return x
@@ -697,8 +701,6 @@ def SwinTransformer(x, img_size=224,
 	if absolute_pos_embed is not None:
 		x = x + absolute_pos_embed
 	x = pos_drop(x)
-	
-	#print(x.shape)
 	
 	for i in range(num_layers):	
 		x, y, att_scores = BasicLayer( 

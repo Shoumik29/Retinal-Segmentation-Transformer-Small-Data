@@ -1,22 +1,11 @@
 data:
-  root: "data/HRF"
-  train:
-    images: "training/images"
-    masks: "training/masks"
-    fov: "training/FOV"
-  test:
-    images: "test/images"
-    masks: "test/masks"
-    fov: "test/FOV"
-  colormap: "colormap.mat"
-  colormap_key: "color_map"
+  dataset: "hrf"
   processed_dir: "data/processed"
   num_classes: 2
   batch_size: 1
 
 preprocessing:
   method: null
-  resize: 896
   patch_size: 224
   step: [224, 224]
   scale: 255.0

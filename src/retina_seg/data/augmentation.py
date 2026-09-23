@@ -1,10 +1,10 @@
 """
 Augmentation for retinal fundus images.
 Responsibilities:
-    - Random colour and gamma changes
-    - Random geometric and colour augmentation on image/mask pairs
-    - Save fixed augmented versions of image/mask pairs
-    - Add augmented copies to patch lists
+    - Random colour and gamma changes on one image
+    - Random geometric and colour augmentation on an image/mask pair
+    - Save five or seven fixed augmented versions of an image/mask pair
+    - Add augmented copies to lists of patches
 """
 
 import os
@@ -55,7 +55,7 @@ def random_hsv_gamma_adjustment(image: np.ndarray) -> np.ndarray:
     return gamma_corrected_image
 
 
-def apply_augmentations(image: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def random_augment_image_mask(image: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     """
     Random rotation and flips on image and mask, colour changes on image only.
@@ -89,7 +89,7 @@ def apply_augmentations(image: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray
     return augmented_image, augmented_mask
 
 
-def augment_data(images: np.ndarray, masks: np.ndarray, save_path: str, names: str, augment: bool = True) -> None:
+def save_five_augmentations(images: np.ndarray, masks: np.ndarray, save_path: str, names: str, augment: bool = True) -> None:
 
     """
     Create 5 augmented versions of an image and mask and save them.
@@ -155,7 +155,7 @@ def augment_data(images: np.ndarray, masks: np.ndarray, save_path: str, names: s
         index += 1
 
 
-def augment_data_1(
+def save_seven_augmentations(
     images: np.ndarray, masks: np.ndarray, save_path: str, names: str, augment: bool = True
 ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
 

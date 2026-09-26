@@ -1,0 +1,15 @@
+data:
+  root: "data/HRF"
+  train:
+    images: "training/images"
+    masks: "training/masks"
+    fov: "training/FOV"
+  test:
+    images: "test/images"
+    masks: "test/masks"
+    fov: "test/FOV"
+  colormap: "colormap.mat"
+  colormap_key: "color_map"
+
+preprocessing:
+  resize: 896

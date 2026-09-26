@@ -81,3 +81,4 @@ class ComponentRegistry:
 
 ENCODERS = ComponentRegistry("encoder")
 DECODERS = ComponentRegistry("decoder")
+LOSSES = ComponentRegistry("loss")

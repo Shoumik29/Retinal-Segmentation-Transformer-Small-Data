@@ -24,10 +24,12 @@ def IoU_coef(y_true, y_pred):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
+
     return (intersection + 1.0) / (K.sum(y_true_f) + K.sum(y_pred_f) - intersection + 1.0)
 
 
 def IoU_loss(y_true, y_pred):
+
     return -IoU_coef(y_true, y_pred)
 
 
@@ -41,10 +43,12 @@ def jaccard_score(y_true, y_pred):
         intersection = y_true_flatten * y_pred_flatten
         union = (y_true_flatten + y_pred_flatten) - intersection
         total_jaccard_score += (K.sum(intersection) + K.epsilon()) / (K.sum(union) + K.epsilon())
+
     return total_jaccard_score / num_classes
 
 
 def jaccard_loss(y_true, y_pred):
+
     return 1 - jaccard_score(y_true, y_pred)
 
 
@@ -58,10 +62,12 @@ def dice_score(y_true, y_pred):
         intersection = K.sum(y_true_flatten * y_pred_flatten)
         combined = K.sum(y_true_flatten) + K.sum(y_pred_flatten)
         total_dice_score += (2 * intersection + K.epsilon()) / (combined + K.epsilon())
+    
     return total_dice_score / num_classes
 
 
 def dice_loss(y_true, y_pred):
+   
     return 1 - dice_score(y_true, y_pred)
 
 
@@ -70,10 +76,12 @@ def soft_dice_score(y_true, y_pred):
     axes = tuple(range(1, len(y_pred.shape) - 1))  # skip batch and class axes
     numerator = 2.0 * tf.math.reduce_sum(y_pred * y_true, axes)
     denominator = tf.math.reduce_sum(tf.math.square(y_pred) + tf.math.square(y_true), axes)
+   
     return tf.math.reduce_mean((numerator + K.epsilon()) / (denominator + K.epsilon()))
 
 
 def soft_dice_loss(y_true, y_pred):
+   
     return 1 - soft_dice_score(y_true, y_pred)
 
 
@@ -88,6 +96,7 @@ def focal_dice_loss(y_true, y_pred, r: float = 0.5, gamma: float = 2.0):
     numerator2 = (1 - y_true) * y_pred + (1 - r) * (1 - y_pred) ** gamma * y_true * (1 - y_pred)
 
     focal_dice_loss_per_class = (numerator1 / denominator) + (numerator2 / denominator)
+  
     return tf.reduce_mean(tf.reduce_sum(focal_dice_loss_per_class, axis=-1))
 
 
@@ -105,6 +114,7 @@ def topk_loss(y_true, y_pred, k: float = 0.2):
     topk_loss_values, _ = tf.math.top_k(cross_entropy, k=k_pixels, sorted=False)
 
     topk_loss_per_image = tf.reduce_mean(topk_loss_values, axis=1)
+  
     return tf.reduce_mean(topk_loss_per_image)
 
 
